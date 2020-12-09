@@ -3,7 +3,7 @@
 Plugin Name: Ezoic CDN Manager
 Plugin URI: https://www.wordpress.org/plugins/ezoic-cdn
 Description: Automates clearing of Ezoic CDN Cache when posts are published
-Version: 1.0
+Version: 1.0.0
 Author: Ezoic Inc.
 Author URI: https://ezoic.com
 */
