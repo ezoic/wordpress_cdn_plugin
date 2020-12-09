@@ -1,0 +1,10 @@
+{
+    "name": "ezoic/wp-ezoic-cdn",
+    "description": "Wordpress Plugin",
+    "type": "wordpress-plugin",
+    "authors": [
+        {
+            "name": "ezoic"
+        }
+    ]
+}
