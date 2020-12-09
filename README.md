@@ -1,3 +1,7 @@
+License: GPLv2
+Name: ezoic-cdn
+Tested up to: 5.6
+---
 ### Wordpress Ezoic CDN Cache Plugin
 
 This plugin uses the Ezoic CDN API to automatically purges pages from the Ezoic CDN whenever a post or page is updated.

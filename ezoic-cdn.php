@@ -6,6 +6,9 @@ Description: Automates clearing of Ezoic CDN Cache when posts are published
 Version: 1.0.0
 Author: Ezoic Inc.
 Author URI: https://ezoic.com
+License: GPLv2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Tested up to: 5.6
 */
 
 
