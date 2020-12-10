@@ -107,7 +107,9 @@ function ezoic_cdn_get_recache_urls_by_post($postID, $post = null)
     $urls = [];
 
     $urls[] = get_permalink($post);
-    $urls[] = get_post_type_archive_link($post->post_type);
+    if ($post->post_type != 'page') {
+        $urls[] = get_post_type_archive_link($post->post_type);
+    }
 
     $categories = wp_get_post_categories($postID, ['fields' => 'all']);
     if ($categories) {
