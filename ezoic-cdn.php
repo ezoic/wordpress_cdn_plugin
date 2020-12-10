@@ -1,16 +1,4 @@
 <?php
-/*
-Plugin Name: Ezoic CDN Manager
-Plugin URI: https://www.wordpress.org/plugins/ezoic-cdn
-Description: Automates clearing of Ezoic CDN Cache when posts are published
-Version: 1.0.0
-Author: Ezoic Inc.
-Author URI: https://ezoic.com
-License: GPLv2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
-Tested up to: 5.6
-*/
-
 
 function ezoic_cdn_is_enabled($refresh = false)
 {

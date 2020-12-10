@@ -1,6 +1,6 @@
 {
-    "name": "ezoic/wp-ezoic-cdn",
-    "description": "Wordpress Plugin",
+    "name": "ezoic/wp-ezoic-cdn-manager",
+    "description": "Wordpress Plugin to automatically purge entries in the Ezoic CDN when posts are updated",
     "type": "wordpress-plugin",
     "authors": [
         {
