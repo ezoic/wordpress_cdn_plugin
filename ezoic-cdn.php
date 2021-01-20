@@ -1,4 +1,17 @@
 <?php
+/**
+ * Plugin Name: Ezoic CDN Manager
+ * Plugin URI: https://www.ezoic.com/site-speed/
+ * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
+ * Version: 1.1.0
+ * Requires at least: 5.1
+ * Requires PHP: 7.2
+ * Author: Ezoic Inc
+ * Author URI: https://www.ezoic.com/
+ * License: GPLv2
+ * License URI: http://www.gnu.org/licenses/gpl-2.0.html
+ */
+
 
 function ezoic_cdn_is_enabled($refresh = false)
 {
@@ -126,6 +139,39 @@ function ezoic_cdn_get_recache_urls_by_post($postID, $post = null)
             $urls[] = get_term_link($tag);
             $urls[] = get_tag_feed_link($tag->term_id, 'atom');
             $urls[] = get_tag_feed_link($tag->term_id, 'rss2');
+        }
+    }
+
+    $taxonomies = get_object_taxonomies($post, 'names');
+    if ($taxonomies) {
+        foreach ($taxonomies as $taxonomy) {
+            if ($taxonomy == 'category' || $taxonomy == 'post_tag' || $taxonomy == 'author') {
+                continue;
+            }
+    
+            $terms = get_the_terms($post, $taxonomy);
+            if ($terms) {
+                foreach ($terms as $term) {
+                    $urls[] = get_term_link($term, $taxonomy);
+                    $urls[] = get_term_feed_link($term->term_id, $taxonomy, 'atom');
+                    $urls[] = get_term_feed_link($term->term_id, $taxonomy, 'rss2');
+                }
+            }
+        }
+    }
+    
+    $urls[] = get_author_posts_url($post->post_author);
+    $urls[] = get_author_feed_link($post->post_author, 'atom');
+    $urls[] = get_author_feed_link($post->post_author, 'rss2');
+
+    if (function_exists('coauthors')) {
+        $authors = get_coauthors($postID);
+        if ($authors) {
+            foreach ($authors as $author) {
+                $urls[] = get_author_posts_url($author->ID, $author->user_nicename);
+                $urls[] = get_author_feed_link($author->ID, 'atom');
+                $urls[] = get_author_feed_link($author->ID, 'rss2');
+            }
         }
     }
 
