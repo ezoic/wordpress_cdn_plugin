@@ -2,7 +2,7 @@
 Tags: cdn, ezoic
 Requires at least: 5.1
 Tested up to: 5.6
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 Requires PHP: 7.2
 Contributors: ezoic
 License: GPLv2
@@ -67,6 +67,10 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 == Screenshots ==
 
 == Changelog ==
+
+### 1.1.1 - 2021-01-26
+#### Added
+- Add hooks to popular caching plugins W3 Total Cache, WP Super Cache, and WP Rocket so that when those plugins clear local cache, the CDN is cleared as well.
 
 ### 1.1.0 - 2021-01-20
 #### Added

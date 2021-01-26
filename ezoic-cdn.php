@@ -3,7 +3,7 @@
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Requires at least: 5.1
  * Requires PHP: 7.2
  * Author: Ezoic Inc
@@ -108,7 +108,7 @@ function ezoic_cdn_purge($domain = null)
         'body'        => wp_json_encode(['domain' => $domain]),
     ];
 
-    return wp_remote_post($url, $args);
+    wp_remote_post($url, $args);
 }
 
 function ezoic_cdn_get_recache_urls_by_post($postID, $post = null)
@@ -257,4 +257,70 @@ function ezoic_cdn_enabled_field()
     if (!$value) { echo 'checked="checked"'; }
     echo " /><label for=\"ezoic_cdn_enabled_off\">Disabled</label>";
 
+}
+
+// When W3TC is instructed to purge cache for entire site, also purge cache from Ezoic CDN
+add_action('w3tc_flush_posts', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
+add_action('w3tc_flush_all', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
+// Also hook into WP Super Cache's wp_cache_cleared action
+add_action('wp_cache_cleared', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
+
+function ezoic_cdn_cachehook_purge_posts_action($extras = [])
+{
+    if (!ezoic_cdn_is_enabled()) {
+        return;
+    }
+
+    ezoic_cdn_purge(ezoic_cdn_get_domain());
+}
+
+// When W3TC is instructed to purge cache for a post, also purge cache from Ezoic CDN
+add_action('w3tc_flush_post', 'ezoic_cdn_cachehook_purge_post_action', 2100, 1);
+
+function ezoic_cdn_cachehook_purge_post_action($postID = null)
+{
+    if (!ezoic_cdn_is_enabled() || !$postID) {
+        return;
+    }
+    $urls = ezoic_cdn_get_recache_urls_by_post($postID);
+
+    $results = ezoic_cdn_clear_urls($urls);
+    return true;
+}
+
+function ezoic_cdn_get_domain()
+{
+    $blogUrl = get_site_url();
+    return parse_url($blogUrl, PHP_URL_HOST);
+}
+
+// WP-Rocket Purge Cache Hook
+add_action('rocket_purge_cache', 'ezoic_cdn_rocket_purge_action', 2100, 4);
+
+function ezoic_cdn_rocket_purge_action($type = 'all', $id = 0, $taxonomy = '', $url = '')
+{
+    if (!ezoic_cdn_is_enabled()) {
+        return;
+    }
+    switch ($type) {
+        case 'all':
+            return ezoic_cdn_purge(ezoic_cdn_get_domain());
+        case 'post':
+            $urls = ezoic_cdn_get_recache_urls_by_post($id);
+            $results = ezoic_cdn_clear_urls($urls);
+            return;
+        default:
+            return;
+    }
+}
+
+add_action('after_rocket_clean_post', 'ezoic_cdn_rocket_clean_post_action', 2100, 3);
+function ezoic_cdn_rocket_clean_post_action($post, $page_urls = [], $lang = '')
+{
+    if (!ezoic_cdn_is_enabled()) {
+        return;
+    }
+    $urls = ezoic_cdn_get_recache_urls_by_post($post->ID, $post);
+    $results = ezoic_cdn_clear_urls($urls);
+    return;
 }
