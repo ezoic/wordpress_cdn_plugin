@@ -25,6 +25,23 @@ function ezoic_cdn_is_enabled($refresh = false)
     return $cdnEnabled;
 }
 
+function ezoic_cdn_get_domain($default = false)
+{
+    static $cdnDomain = null;
+
+    if ($cdnDomain === null && !$default) {
+        $cdnDomain = get_option('ezoic_cdn_domain');
+    }
+    if (!$cdnDomain || $default) {
+        $cdnDomain = parse_url(get_site_url(), PHP_URL_HOST);
+        $cdnDomain = preg_replace("@^www\.@msi", "", $cdnDomain);
+    }
+
+    return $cdnDomain;
+}
+
+
+
 function ezoic_cdn_api_key($refresh = false)
 {
     static $apiKey = null;
@@ -102,7 +119,7 @@ function ezoic_cdn_purge($domain = null)
 
     $args = [
         'timeout'     => 45,
-        'blocking'    => false,
+        'blocking'    => true,
         'httpversion' => '1.1',
         'headers'     => ['Content-Type' => 'application/json'],
         'body'        => wp_json_encode(['domain' => $domain]),
@@ -223,6 +240,14 @@ function ezoic_cdn_admin_init()
     );
 
     add_settings_field(
+        'ezoic_cdn_domain',
+        'Ezoic Domain',
+        'ezoic_cdn_domain_field',
+        'ezoic_cdn',
+        'ezoic_cdn_settings_section'
+    );
+
+    add_settings_field(
         'ezoic_cdn_enabled',
         'Automatic Recaching',
         'ezoic_cdn_enabled_field',
@@ -231,6 +256,7 @@ function ezoic_cdn_admin_init()
     );
 
     register_setting('ezoic_cdn', 'ezoic_cdn_api_key');
+    register_setting('ezoic_cdn', 'ezoic_cdn_domain');
     register_setting('ezoic_cdn', 'ezoic_cdn_enabled');
 }
 add_action('admin_init', 'ezoic_cdn_admin_init');
@@ -246,6 +272,12 @@ function ezoic_cdn_api_key_field()
 {
     $value = get_option('ezoic_cdn_api_key');
     echo "<input type=\"text\" name=\"ezoic_cdn_api_key\" value=\"{$value}\" />";
+}
+
+function ezoic_cdn_domain_field()
+{
+    $value = ezoic_cdn_get_domain();
+    echo "<input type=\"text\" name=\"ezoic_cdn_domain\" value=\"{$value}\" /> <em>Main domain only, must match domain in ezoic, no subdomains</em>";
 }
 
 function ezoic_cdn_enabled_field()
@@ -286,12 +318,6 @@ function ezoic_cdn_cachehook_purge_post_action($postID = null)
 
     $results = ezoic_cdn_clear_urls($urls);
     return true;
-}
-
-function ezoic_cdn_get_domain()
-{
-    $blogUrl = get_site_url();
-    return parse_url($blogUrl, PHP_URL_HOST);
 }
 
 // WP-Rocket Purge Cache Hook

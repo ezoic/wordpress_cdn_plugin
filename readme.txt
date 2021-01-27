@@ -70,7 +70,7 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 
 ### 1.1.1 - 2021-01-26
 #### Added
-- Add hooks to popular caching plugins W3 Total Cache, WP Super Cache, and WP Rocket so that when those plugins clear local cache, the CDN is cleared as well.
+- Add hooks to popular caching plugins **W3 Total Cache**, **WP Super Cache**, and **WP Rocket** so that when those plugins clear local cache, the CDN is cleared as well.
 
 ### 1.1.0 - 2021-01-20
 #### Added
