@@ -5,7 +5,7 @@
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
  * Version: 1.1.1
  * Requires at least: 5.1
- * Requires PHP: 7.2
+ * Requires PHP: 7.0
  * Author: Ezoic Inc
  * Author URI: https://www.ezoic.com/
  * License: GPLv2
