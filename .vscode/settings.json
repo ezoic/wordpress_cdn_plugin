@@ -1,0 +1,6 @@
+{
+	"phpcs.executablePath": "vendor/bin/phpcs",
+	"phpcs.standard": "",
+	"intelephense.diagnostics.undefinedFunctions": false,
+	"intelephense.environment.phpVersion": "7.0.0"
+}

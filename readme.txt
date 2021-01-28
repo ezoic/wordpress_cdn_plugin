@@ -1,9 +1,9 @@
 === Ezoic CDN Manager ===
 Tags: cdn, ezoic
-Requires at least: 5.1
+Requires at least: 5.2
 Tested up to: 5.6
-Stable tag: 1.1.1
-Requires PHP: 7.2
+Stable tag: 1.1.2
+Requires PHP: 7.0
 Contributors: ezoic
 License: GPLv2
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
@@ -67,6 +67,10 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 == Screenshots ==
 
 == Changelog ==
+
+### 1.1.2 - 2021-01-28
+#### Added
+- Added configuration for PHP_Codesniffer and editorconfig
 
 ### 1.1.1 - 2021-01-26
 #### Added
