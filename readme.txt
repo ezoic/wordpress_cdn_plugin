@@ -71,6 +71,9 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 ### 1.1.2 - 2021-01-28
 #### Added
 - Added configuration for PHP_Codesniffer and editorconfig
+- Added PHPDoc Documentation blocks to all functions and PHP Files
+#### Changed
+- Updated code to follow the [Wordpress Coding Standards](https://github.com/WordPress/WordPress-Coding-Standards)
 
 ### 1.1.1 - 2021-01-26
 #### Added

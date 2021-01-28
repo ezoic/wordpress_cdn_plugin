@@ -1,10 +1,19 @@
 <?php
 /**
+ * Ezoic CDN Manager Plugin
+ *
+ * @package ezoic-cdn-manager
+ * @version 1.1.2
+ * @author Ezoic
+ * @copyright 2020 Ezoic Inc
+ * @license GPL-2.0-or-later
+ *
+ * @wordpress-plugin
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.1.1
- * Requires at least: 5.1
+ * Version: 1.1.2
+ * Requires at least: 5.2
  * Requires PHP: 7.0
  * Author: Ezoic Inc
  * Author URI: https://www.ezoic.com/
@@ -12,341 +21,523 @@
  * License URI: http://www.gnu.org/licenses/gpl-2.0.html
  */
 
-
-function ezoic_cdn_is_enabled($refresh = false)
-{
-    static $cdnEnabled = null;
-    if (!ezoic_cdn_api_key()) {
-        return false;
-    }
-    if ($cdnEnabled === null || $refresh) {
-        $cdnEnabled = (get_option('ezoic_cdn_enabled','off') == "on");
-    }
-    return $cdnEnabled;
+/**
+ * Helper function to determine if auto-purging of the Ezoic CDN is enabled or not.
+ *
+ * Note if there is not an API key stored, this is always false.
+ *
+ * @see ezoic_cdn_api_key()
+ * @since 1.0.0
+ * @param boolean $refresh Set to true if you want to re-fetch the option isntead of using static variable.
+ * @return boolean
+ */
+function ezoic_cdn_is_enabled( $refresh = false ) {
+	static $cdn_enabled = null;
+	if ( ! ezoic_cdn_api_key() ) {
+		return false;
+	}
+	if ( is_null( $cdn_enabled ) || $refresh ) {
+		$cdn_enabled = ( get_option( 'ezoic_cdn_enabled', 'off' ) === 'on' );
+	}
+	return $cdn_enabled;
 }
 
-function ezoic_cdn_get_domain($default = false)
-{
-    static $cdnDomain = null;
+/**
+ * Helper function to get the Ezoic Domain from the WordPress Options
+ *
+ * @since 1.1.1
+ * @param boolean $default Set to true if you want to generate the domain from WordPress Site URL.
+ * @return string Domain Name as defined in Ezoic
+ */
+function ezoic_cdn_get_domain( $default = false ) {
+	static $cdn_domain = null;
 
-    if ($cdnDomain === null && !$default) {
-        $cdnDomain = get_option('ezoic_cdn_domain');
-    }
-    if (!$cdnDomain || $default) {
-        $cdnDomain = parse_url(get_site_url(), PHP_URL_HOST);
-        $cdnDomain = preg_replace("@^www\.@msi", "", $cdnDomain);
-    }
+	if ( is_null( $cdn_domain ) && ! $default ) {
+		$cdn_domain = get_option( 'ezoic_cdn_domain' );
+	}
+	if ( ! $cdn_domain || $default ) {
+		$cdn_domain = wp_parse_url( get_site_url(), PHP_URL_HOST );
+		$cdn_domain = preg_replace( '@^www\.@msi', '', $cdn_domain );
+	}
 
-    return $cdnDomain;
+	return $cdn_domain;
 }
 
 
-
-function ezoic_cdn_api_key($refresh = false)
-{
-    static $apiKey = null;
-    if ($apiKey === null || $refresh) {
-        $apiKey = get_option('ezoic_cdn_api_key');
-    }
-    return $apiKey;
+/**
+ * Helper Function to retrieve the API Key from WordPress Options
+ *
+ * @since 1.0.0
+ * @param boolean $refresh Set to true if you want to force re-fetching of the option rather than use static version.
+ * @return string API Key
+ */
+function ezoic_cdn_api_key( $refresh = false ) {
+	static $api_key = null;
+	if ( is_null( $api_key ) || $refresh ) {
+		$api_key = get_option( 'ezoic_cdn_api_key' );
+	}
+	return $api_key;
 }
 
-function ezoic_cdn_post_updated($postID, $oldPost, $newPost)
-{
-    if (!ezoic_cdn_is_enabled()) { return true; }
-    if (wp_is_post_revision($newPost)) { return true; }
+/**
+ * Implementation of post_updated action
+ *
+ * When a post is modified, clear Ezoic CDN cache for the post URL and all related archive pages (both before and after the change)
+ *
+ * @since 1.0.0
+ * @param int     $post_id ID of the Post that has been modified.
+ * @param WP_Post $old_post The WordPress Post object of the post before modification.
+ * @param WP_Post $new_post The WordPress Post object of the post after modification.
+ * @see ezoic_cdn_clear_urls()
+ * @return void
+ */
+function ezoic_cdn_post_updated( $post_id, $old_post, $new_post ) {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	if ( wp_is_post_revision( $new_post ) ) {
+		return;
+	}
 
-    if ($oldPost->post_status != 'publish' && $newPost->post_status != 'publish') {
-        return true;
-    }
+	// If the post wasn't published before and isn't published now, there is no need to purge anything.
+	if ( 'publish' !== $old_post->post_status && 'publish' !== $new_post->post_status ) {
+		return;
+	}
 
-    $urls = ezoic_cdn_get_recache_urls_by_post($postID, $oldPost);
-    $urls = array_merge($urls, ezoic_cdn_get_recache_urls_by_post($postID, $newPost));
-    $urls = array_unique($urls);
+	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id, $old_post );
+	$urls = array_merge( $urls, ezoic_cdn_get_recache_urls_by_post( $post_id, $new_post ) );
+	$urls = array_unique( $urls );
 
-    $results = ezoic_cdn_clear_urls($urls);
+	ezoic_cdn_clear_urls( $urls );
 }
-add_action('post_updated', 'ezoic_cdn_post_updated', 10, 3);
+add_action( 'post_updated', 'ezoic_cdn_post_updated', 10, 3 );
 
-function ezoic_cdn_post_deleted($postID, $oldPost)
-{
-    if (!ezoic_cdn_is_enabled()) { return true; }
-    if (wp_is_post_revision($oldPost)) { return true; }
+/**
+ * Implementation of after_delete_post action
+ *
+ * When a post is deleted, clear Ezoic CDN cache for the post URL, and all related archive pages
+ *
+ * @since 1.0.0
+ * @param int     $post_id ID of the deleted post.
+ * @param WP_Post $old_post WordPress Post object as it was before deletion.
+ * @see ezoic_cdn_clear_urls()
+ * @return void
+ */
+function ezoic_cdn_post_deleted( $post_id, $old_post ) {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	if ( wp_is_post_revision( $old_post ) ) {
+		return;
+	}
 
-    if ($oldPost->post_status != 'publish') {
-        return true;
-    }
+	if ( 'publish' !== $old_post->post_status ) {
+		return;
+	}
 
-    $urls = ezoic_cdn_get_recache_urls_by_post($postID, $oldPost);
+	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id, $old_post );
 
-    $results = ezoic_cdn_clear_urls($urls);
+	ezoic_cdn_clear_urls( $urls );
 }
-add_action('after_delete_post', 'ezoic_cdn_post_deleted', 10, 2);
+add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 10, 2 );
 
-function ezoic_cdn_clear_url($url = null)
-{
-    $url = "https://api-gateway.ezoic.com/gateway/cdnservices/clearcache?developerKey=" . ezoic_cdn_api_key();
+/**
+ * Uses Ezoic CDN API to purge cache for a single URL
+ *
+ * @since 1.0.0
+ * @param string $url URL to purge from Ezoic CDN Cache.
+ * @return array|WP_Error wp_remote_post() response array
+ */
+function ezoic_cdn_clear_url( $url = null ) {
+	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/clearcache?developerKey=' . ezoic_cdn_api_key();
 
-    $args = [
-        'timeout'     => 45,
-        'blocking'    => false,
-        'httpversion' => '1.1',
-        'headers'     => ['Content-Type' => 'application/json'],
-        'body'        => wp_json_encode(['url' => $url]),
-    ];
+	$args = array(
+		'timeout'     => 45,
+		'blocking'    => false,
+		'httpversion' => '1.1',
+		'headers'     => array( 'Content-Type' => 'application/json' ),
+		'body'        => wp_json_encode( array( 'url' => $url ) ),
+	);
 
-    return wp_remote_post($url, $args);
-}
-
-function ezoic_cdn_clear_urls($urls = [])
-{
-    $url = "https://api-gateway.ezoic.com/gateway/cdnservices/bulkclearcache?developerKey=" . ezoic_cdn_api_key();
-
-    $args = [
-        'timeout'     => 45,
-        'blocking'    => false,
-        'httpversion' => '1.1',
-        'headers'     => ['Content-Type' => 'application/json'],
-        'body'        => wp_json_encode(['urls' => $urls]),
-    ];
-
-    return wp_remote_post($url, $args);
-}
-
-function ezoic_cdn_purge($domain = null)
-{
-    $url = "https://api-gateway.ezoic.com/gateway/cdnservices/purgecache?developerKey=" . ezoic_cdn_api_key();
-
-    $args = [
-        'timeout'     => 45,
-        'blocking'    => true,
-        'httpversion' => '1.1',
-        'headers'     => ['Content-Type' => 'application/json'],
-        'body'        => wp_json_encode(['domain' => $domain]),
-    ];
-
-    wp_remote_post($url, $args);
-}
-
-function ezoic_cdn_get_recache_urls_by_post($postID, $post = null)
-{
-    if (!$post) {
-        $post = get_post($postID);
-    }
-
-    $urls = [];
-
-    $urls[] = get_permalink($post);
-    if ($post->post_type != 'page') {
-        $urls[] = get_post_type_archive_link($post->post_type);
-    }
-
-    $categories = wp_get_post_categories($postID, ['fields' => 'all']);
-    if ($categories) {
-        foreach ($categories as $category) {
-            $urls[] = get_term_link($category);
-            $urls[] = get_category_feed_link($category->term_id, 'atom');
-            $urls[] = get_category_feed_link($category->term_id, 'rss2');
-        }
-    }
-
-    $tags = wp_get_post_tags($postID, ['fields' => 'all']);
-    if ($tags) {
-        foreach ($tags as $tag) {
-            $urls[] = get_term_link($tag);
-            $urls[] = get_tag_feed_link($tag->term_id, 'atom');
-            $urls[] = get_tag_feed_link($tag->term_id, 'rss2');
-        }
-    }
-
-    $taxonomies = get_object_taxonomies($post, 'names');
-    if ($taxonomies) {
-        foreach ($taxonomies as $taxonomy) {
-            if ($taxonomy == 'category' || $taxonomy == 'post_tag' || $taxonomy == 'author') {
-                continue;
-            }
-    
-            $terms = get_the_terms($post, $taxonomy);
-            if ($terms) {
-                foreach ($terms as $term) {
-                    $urls[] = get_term_link($term, $taxonomy);
-                    $urls[] = get_term_feed_link($term->term_id, $taxonomy, 'atom');
-                    $urls[] = get_term_feed_link($term->term_id, $taxonomy, 'rss2');
-                }
-            }
-        }
-    }
-    
-    $urls[] = get_author_posts_url($post->post_author);
-    $urls[] = get_author_feed_link($post->post_author, 'atom');
-    $urls[] = get_author_feed_link($post->post_author, 'rss2');
-
-    if (function_exists('coauthors')) {
-        $authors = get_coauthors($postID);
-        if ($authors) {
-            foreach ($authors as $author) {
-                $urls[] = get_author_posts_url($author->ID, $author->user_nicename);
-                $urls[] = get_author_feed_link($author->ID, 'atom');
-                $urls[] = get_author_feed_link($author->ID, 'rss2');
-            }
-        }
-    }
-
-    if (comments_open($post)) {
-        $urls[] = get_bloginfo('comments_atom_url');
-        $urls[] = get_bloginfo('comments_rss2_url');
-        $urls[] = get_post_comments_feed_link($postID, 'atom');
-        $urls[] = get_post_comments_feed_link($postID, 'rss2');
-    }
-
-    if ($post->post_type != 'post') {
-        return $urls;
-    }
-
-    $urls[] = get_bloginfo('atom_url');
-    $urls[] = get_bloginfo('rss_url');
-    $urls[] = get_bloginfo('rss2_url');
-    $urls[] = get_bloginfo('rdf_url');
-
-    $date = strtotime($post->post_date);
-    $urls[] = get_year_link(date("Y", $date));
-    $urls[] = get_month_link(date("Y", $date), date("m", $date));
-    $urls[] = get_day_link(date("Y", $date), date("m", $date), date("j", $date));
-
-    return $urls;
+	return wp_remote_post( $url, $args );
 }
 
-function ezoic_cdn_admin_menu()
-{
-    add_options_page('Ezoic CDN', 'Ezoic CDN', 'manage_options', 'ezoic_cdn', 'ezoic_cdn_admin_page');
+/**
+ * Uses Ezoic CDN API to purge cache for an array of URLs
+ *
+ * @since 1.0.0
+ * @param array $urls List of URLs to purge from Ezoic Cache.
+ * @return array|WP_Error wp_remote_post() response array
+ */
+function ezoic_cdn_clear_urls( $urls = array() ) {
+	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/bulkclearcache?developerKey=' . ezoic_cdn_api_key();
+
+	$args = array(
+		'timeout'     => 45,
+		'blocking'    => false,
+		'httpversion' => '1.1',
+		'headers'     => array( 'Content-Type' => 'application/json' ),
+		'body'        => wp_json_encode( array( 'urls' => $urls ) ),
+	);
+
+	return wp_remote_post( $url, $args );
 }
-add_action('admin_menu', 'ezoic_cdn_admin_menu');
 
-function ezoic_cdn_admin_init()
-{
-    add_settings_section(
-        'ezoic_cdn_settings_section',
-        'Ezoic CDN Settings',
-        'ezoic_cdn_settings_section_callback',
-        'ezoic_cdn'
-    );
+/**
+ * Uses Ezoic CDN API to purge cache for an entire domain
+ *
+ * @since 1.0.0
+ * @param string $domain Domain Name to purge Ezoic Cache for.
+ * @return array|WP_Error wp_remote_post() response array
+ */
+function ezoic_cdn_purge( $domain = null ) {
+	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/purgecache?developerKey=' . ezoic_cdn_api_key();
 
-    add_settings_field(
-        'ezoic_cdn_api_key',
-        'Ezoic API Key',
-        'ezoic_cdn_api_key_field',
-        'ezoic_cdn',
-        'ezoic_cdn_settings_section'
-    );
+	$args = array(
+		'timeout'     => 45,
+		'blocking'    => true,
+		'httpversion' => '1.1',
+		'headers'     => array( 'Content-Type' => 'application/json' ),
+		'body'        => wp_json_encode( array( 'domain' => $domain ) ),
+	);
 
-    add_settings_field(
-        'ezoic_cdn_domain',
-        'Ezoic Domain',
-        'ezoic_cdn_domain_field',
-        'ezoic_cdn',
-        'ezoic_cdn_settings_section'
-    );
-
-    add_settings_field(
-        'ezoic_cdn_enabled',
-        'Automatic Recaching',
-        'ezoic_cdn_enabled_field',
-        'ezoic_cdn',
-        'ezoic_cdn_settings_section'
-    );
-
-    register_setting('ezoic_cdn', 'ezoic_cdn_api_key');
-    register_setting('ezoic_cdn', 'ezoic_cdn_domain');
-    register_setting('ezoic_cdn', 'ezoic_cdn_enabled');
+	return wp_remote_post( $url, $args );
 }
-add_action('admin_init', 'ezoic_cdn_admin_init');
 
+/**
+ * Determines list of URLs related to a post that should be recached when the post is updated
+ *
+ * @since 1.0.0
+ * @since 1.1.0 Added support for custom taxonomies and author archives.
+ * @param int     $post_id ID of the Post.
+ * @param WP_Post $post WordPress post object (found with get_post if omitted).
+ * @return array $urls Array of URLs to be recached for a given post
+ */
+function ezoic_cdn_get_recache_urls_by_post( $post_id, $post = null ) {
+	if ( ! $post ) {
+		$post = get_post( $post_id );
+	}
+
+	$urls = array();
+
+	$urls[] = get_permalink( $post );
+	if ( 'page' !== $post->post_type ) {
+		$urls[] = get_post_type_archive_link( $post->post_type );
+	}
+
+	$categories = wp_get_post_categories( $post_id, array( 'fields' => 'all' ) );
+	if ( $categories ) {
+		foreach ( $categories as $category ) {
+			$urls[] = get_term_link( $category );
+			$urls[] = get_category_feed_link( $category->term_id, 'atom' );
+			$urls[] = get_category_feed_link( $category->term_id, 'rss2' );
+		}
+	}
+
+	$tags = wp_get_post_tags( $post_id, array( 'fields' => 'all' ) );
+	if ( $tags ) {
+		foreach ( $tags as $tag ) {
+			$urls[] = get_term_link( $tag );
+			$urls[] = get_tag_feed_link( $tag->term_id, 'atom' );
+			$urls[] = get_tag_feed_link( $tag->term_id, 'rss2' );
+		}
+	}
+
+	$taxonomies = get_object_taxonomies( $post, 'names' );
+	if ( $taxonomies ) {
+		foreach ( $taxonomies as $taxonomy ) {
+			if ( in_array( $taxonomy, array( 'category', 'post_tag', 'author' ), true ) ) {
+				continue;
+			}
+
+			$terms = get_the_terms( $post, $taxonomy );
+			if ( $terms ) {
+				foreach ( $terms as $term ) {
+					$urls[] = get_term_link( $term, $taxonomy );
+					$urls[] = get_term_feed_link( $term->term_id, $taxonomy, 'atom' );
+					$urls[] = get_term_feed_link( $term->term_id, $taxonomy, 'rss2' );
+				}
+			}
+		}
+	}
+
+	$urls[] = get_author_posts_url( $post->post_author );
+	$urls[] = get_author_feed_link( $post->post_author, 'atom' );
+	$urls[] = get_author_feed_link( $post->post_author, 'rss2' );
+
+	if ( function_exists( 'coauthors' ) ) {
+		$authors = get_coauthors( $post_id );
+		if ( $authors ) {
+			foreach ( $authors as $author ) {
+				$urls[] = get_author_posts_url( $author->ID, $author->user_nicename );
+				$urls[] = get_author_feed_link( $author->ID, 'atom' );
+				$urls[] = get_author_feed_link( $author->ID, 'rss2' );
+			}
+		}
+	}
+
+	if ( comments_open( $post ) ) {
+		$urls[] = get_bloginfo( 'comments_atom_url' );
+		$urls[] = get_bloginfo( 'comments_rss2_url' );
+		$urls[] = get_post_comments_feed_link( $post_id, 'atom' );
+		$urls[] = get_post_comments_feed_link( $post_id, 'rss2' );
+	}
+
+	if ( 'post' !== $post->post_type ) {
+		return $urls;
+	}
+
+	$urls[] = get_bloginfo( 'atom_url' );
+	$urls[] = get_bloginfo( 'rss_url' );
+	$urls[] = get_bloginfo( 'rss2_url' );
+	$urls[] = get_bloginfo( 'rdf_url' );
+
+	$date   = strtotime( $post->post_date );
+	$urls[] = get_year_link( gmdate( 'Y', $date ) );
+	$urls[] = get_month_link( gmdate( 'Y', $date ), gmdate( 'm', $date ) );
+	$urls[] = get_day_link( gmdate( 'Y', $date ), gmdate( 'm', $date ), gmdate( 'j', $date ) );
+
+	return $urls;
+}
+
+/**
+ * Implementation of admin_menu action
+ *
+ * Creates link to CDN Settings Page in WordPress Admin
+ *
+ * @since 1.0.0
+ * @return void
+ */
+function ezoic_cdn_admin_menu() {
+	add_options_page( 'Ezoic CDN', 'Ezoic CDN', 'manage_options', 'ezoic_cdn', 'ezoic_cdn_admin_page' );
+}
+add_action( 'admin_menu', 'ezoic_cdn_admin_menu' );
+
+/**
+ * Implementation of admin_init action
+ *
+ * Defines settings for the Ezoic CDN Manager plugin
+ *
+ * @since 1.0.0
+ * @return void
+ */
+function ezoic_cdn_admin_init() {
+	add_settings_section(
+		'ezoic_cdn_settings_section',
+		'Ezoic CDN Settings',
+		'ezoic_cdn_settings_section_callback',
+		'ezoic_cdn'
+	);
+
+	add_settings_field(
+		'ezoic_cdn_api_key',
+		'Ezoic API Key',
+		'ezoic_cdn_api_key_field',
+		'ezoic_cdn',
+		'ezoic_cdn_settings_section'
+	);
+
+	add_settings_field(
+		'ezoic_cdn_domain',
+		'Ezoic Domain',
+		'ezoic_cdn_domain_field',
+		'ezoic_cdn',
+		'ezoic_cdn_settings_section'
+	);
+
+	add_settings_field(
+		'ezoic_cdn_enabled',
+		'Automatic Recaching',
+		'ezoic_cdn_enabled_field',
+		'ezoic_cdn',
+		'ezoic_cdn_settings_section'
+	);
+
+	register_setting( 'ezoic_cdn', 'ezoic_cdn_api_key' );
+	register_setting( 'ezoic_cdn', 'ezoic_cdn_domain' );
+	register_setting( 'ezoic_cdn', 'ezoic_cdn_enabled' );
+}
+add_action( 'admin_init', 'ezoic_cdn_admin_init' );
+
+/**
+ * Empty Callback for WordPress Settings
+ *
+ * @since 1.0.0
+ * @return void
+ */
 function ezoic_cdn_settings_section_callback() {}
 
-function ezoic_cdn_admin_page()
-{
-    require_once(__DIR__."/ezoic-cdn-admin.php");
+/**
+ * Settings Page for Ezoic CDN Manager plugin
+ *
+ * @since 1.0.0
+ * @return void
+ */
+function ezoic_cdn_admin_page() {
+	require_once __DIR__ . '/ezoic-cdn-admin.php';
 }
 
-function ezoic_cdn_api_key_field()
-{
-    $value = get_option('ezoic_cdn_api_key');
-    echo "<input type=\"text\" name=\"ezoic_cdn_api_key\" value=\"{$value}\" />";
+/**
+ * WordPress Settings Field for defining the Ezoic API Key
+ *
+ * @since 1.0.0
+ * @return void
+ */
+function ezoic_cdn_api_key_field() {
+	?>
+	<input type="text" name="ezoic_cdn_api_key" value="<?php echo( esc_attr( ezoic_cdn_api_key() ) ); ?>" />
+	<?php
 }
 
-function ezoic_cdn_domain_field()
-{
-    $value = ezoic_cdn_get_domain();
-    echo "<input type=\"text\" name=\"ezoic_cdn_domain\" value=\"{$value}\" /> <em>Main domain only, must match domain in ezoic, no subdomains</em>";
+/**
+ * WordPress Settings Field for defining the domain to purge cache for
+ *
+ * @since 1.1.1
+ * @return void
+ */
+function ezoic_cdn_domain_field() {
+	?>
+	<input type="text" name="ezoic_cdn_domain" value="<?php echo( esc_attr( ezoic_cdn_get_domain() ) ); ?>" /> <em>Main domain only, must match domain in ezoic, no subdomains.</em>
+	<?php
 }
 
-function ezoic_cdn_enabled_field()
-{
-    $value = ezoic_cdn_is_enabled(true);
-    echo "<input type=\"radio\" id=\"ezoic_cdn_enabled_on\" name=\"ezoic_cdn_enabled\" value=\"on\" ";
-    if ($value) { echo 'checked="checked"'; }
-    echo " /><label for=\"ezoic_cdn_enabled_on\">Enabled</label> <input type=\"radio\" id=\"ezoic_cdn_enabled_off\" name=\"ezoic_cdn_enabled\" value=\"off\" ";
-    if (!$value) { echo 'checked="checked"'; }
-    echo " /><label for=\"ezoic_cdn_enabled_off\">Disabled</label>";
+/**
+ * WordPress Settings Field for enabling/disabling auto-purge
+ *
+ * @since 1.0.0
+ * @return void
+ */
+function ezoic_cdn_enabled_field() {
+	$value = ezoic_cdn_is_enabled( true );
 
+	?>
+	<input type="radio" id="ezoic_cdn_enabled_on" name="ezoic_cdn_enabled" value="on"
+	<?php
+	if ( $value ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_enabled_on">Enabled</label>
+
+	<input type="radio" id="ezoic_cdn_enabled_off" name="ezoic_cdn_enabled" value="off"
+	<?php
+	if ( ! $value ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_enabled_off">Disabled</label>
+	<?php
 }
 
-// When W3TC is instructed to purge cache for entire site, also purge cache from Ezoic CDN
-add_action('w3tc_flush_posts', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
-add_action('w3tc_flush_all', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
-// Also hook into WP Super Cache's wp_cache_cleared action
-add_action('wp_cache_cleared', 'ezoic_cdn_cachehook_purge_posts_action', 2100);
+// When W3TC is instructed to purge cache for entire site, also purge cache from Ezoic CDN.
+add_action( 'w3tc_flush_posts', 'ezoic_cdn_cachehook_purge_posts_action', 2100 );
+add_action( 'w3tc_flush_all', 'ezoic_cdn_cachehook_purge_posts_action', 2100 );
+// Also hook into WP Super Cache's wp_cache_cleared action.
+add_action( 'wp_cache_cleared', 'ezoic_cdn_cachehook_purge_posts_action', 2100 );
 
-function ezoic_cdn_cachehook_purge_posts_action($extras = [])
-{
-    if (!ezoic_cdn_is_enabled()) {
-        return;
-    }
+/**
+ * Implementation of all of the following actions: w3tc_flush_posts, w3tc_flush_all, and wp_cache_cleared
+ *
+ * Completely purges Ezoic CDN cache for domain when these caches are purged
+ *
+ * @since 1.1.1
+ * @return void
+ */
+function ezoic_cdn_cachehook_purge_posts_action() {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
 
-    ezoic_cdn_purge(ezoic_cdn_get_domain());
+	ezoic_cdn_purge( ezoic_cdn_get_domain() );
 }
 
-// When W3TC is instructed to purge cache for a post, also purge cache from Ezoic CDN
-add_action('w3tc_flush_post', 'ezoic_cdn_cachehook_purge_post_action', 2100, 1);
+// When W3TC is instructed to purge cache for a post, also purge cache from Ezoic CDN.
+add_action( 'w3tc_flush_post', 'ezoic_cdn_cachehook_purge_post_action', 2100, 1 );
 
-function ezoic_cdn_cachehook_purge_post_action($postID = null)
-{
-    if (!ezoic_cdn_is_enabled() || !$postID) {
-        return;
-    }
-    $urls = ezoic_cdn_get_recache_urls_by_post($postID);
+/**
+ * Implementation of w3tc_flush_post action
+ *
+ * Purges Ezoic CDN Cache when a post is flushed by the W3TC plugin
+ *
+ * @since 1.1.1
+ * @param int $post_id ID of the Post.
+ * @return void
+ */
+function ezoic_cdn_cachehook_purge_post_action( $post_id = null ) {
+	if ( ! ezoic_cdn_is_enabled() || ! $post_id ) {
+		return;
+	}
+	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id );
 
-    $results = ezoic_cdn_clear_urls($urls);
-    return true;
+	ezoic_cdn_clear_urls( $urls );
+	return true;
 }
 
-// WP-Rocket Purge Cache Hook
-add_action('rocket_purge_cache', 'ezoic_cdn_rocket_purge_action', 2100, 4);
+// WP-Rocket Purge Cache Hook.
+add_action( 'rocket_purge_cache', 'ezoic_cdn_rocket_purge_action', 2100, 4 );
 
-function ezoic_cdn_rocket_purge_action($type = 'all', $id = 0, $taxonomy = '', $url = '')
-{
-    if (!ezoic_cdn_is_enabled()) {
-        return;
-    }
-    switch ($type) {
-        case 'all':
-            return ezoic_cdn_purge(ezoic_cdn_get_domain());
-        case 'post':
-            $urls = ezoic_cdn_get_recache_urls_by_post($id);
-            $results = ezoic_cdn_clear_urls($urls);
-            return;
-        default:
-            return;
-    }
+/**
+ * Implementation of rocket_purge_cache action
+ *
+ * When WP-Rocket purges cache for various page types, also purge the corresponding URLs from the Ezoic CDN
+ *
+ * @since 1.1.1
+ * @since 1.1.2 Added support for WP-Rockets 'term' and 'url' based purges as well
+ * @param string $type     Type of cache clearance: 'all', 'post', 'term', 'user', 'url'.
+ * @param int    $id       The post ID, term ID, or user ID being cleared. 0 when $type is not 'post', 'term', or 'user'.
+ * @param string $taxonomy The taxonomy the term being cleared belong to. '' when $type is not 'term'.
+ * @param string $url      The URL being cleared. '' when $type is not 'url'.
+ * @return void
+ */
+function ezoic_cdn_rocket_purge_action( $type = 'all', $id = 0, $taxonomy = '', $url = '' ) {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	switch ( $type ) {
+		case 'all':
+			return ezoic_cdn_purge( ezoic_cdn_get_domain() );
+		case 'post':
+			$urls = ezoic_cdn_get_recache_urls_by_post( $id );
+			ezoic_cdn_clear_urls( $urls );
+			return;
+		case 'term':
+			$urls   = array();
+			$urls[] = get_term_link( $id, $taxonomy );
+			$urls[] = get_term_feed_link( $id, $taxonomy, 'atom' );
+			$urls[] = get_term_feed_link( $id, $taxonomy, 'rss2' );
+			ezoic_cdn_clear_urls( $urls );
+			return;
+		case 'url':
+			$urls = array( $url );
+			ezoic_cdn_clear_urls( $urls );
+			return;
+		default:
+			return;
+	}
 }
 
-add_action('after_rocket_clean_post', 'ezoic_cdn_rocket_clean_post_action', 2100, 3);
-function ezoic_cdn_rocket_clean_post_action($post, $page_urls = [], $lang = '')
-{
-    if (!ezoic_cdn_is_enabled()) {
-        return;
-    }
-    $urls = ezoic_cdn_get_recache_urls_by_post($post->ID, $post);
-    $results = ezoic_cdn_clear_urls($urls);
-    return;
+add_action( 'after_rocket_clean_post', 'ezoic_cdn_rocket_clean_post_action', 2100, 3 );
+
+/**
+ * Implementation of after_rocket_clean_post action
+ *
+ * When WP Rocket plugin purges local cache for a post, also clear appropriate urls from the Ezoic CDN.
+ *
+ * @since 1.1.1
+ * @since 1.1.2 Added support for purging all the urls passed in $purge_urls as well
+ * @param WP_Post $post       The post object.
+ * @param array   $purge_urls URLs cache files to remove.
+ * @param string  $lang       The post language.
+ * @return void
+ */
+function ezoic_cdn_rocket_clean_post_action( $post, $purge_urls = array(), $lang = '' ) {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	$urls = ezoic_cdn_get_recache_urls_by_post( $post->ID, $post );
+	$urls = array_merge( $urls, $purge_urls );
+	$urls = array_unique( $urls );
+	ezoic_cdn_clear_urls( $urls );
 }
