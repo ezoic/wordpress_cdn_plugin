@@ -72,8 +72,11 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 #### Added
 - Added configuration for PHP_Codesniffer and editorconfig
 - Added PHPDoc Documentation blocks to all functions and PHP Files
+- Added option to always purge the home page when purging any other urls
+- Added verbose option which will output which URLs were purged
 #### Changed
 - Updated code to follow the [Wordpress Coding Standards](https://github.com/WordPress/WordPress-Coding-Standards)
+- Prevent purging the same URL multiple times on the same request
 
 ### 1.1.1 - 2021-01-26
 #### Added
