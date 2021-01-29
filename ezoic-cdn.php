@@ -222,7 +222,7 @@ function ezoic_cdn_add_notice( $label, $results, $params = null, $class = 'info'
 	if ( is_array( $results ) && ! empty( $results['response'] ) && ! empty( $results['body'] ) ) {
 		$raw = $results;
 
-		$results = $raw['response'];
+		$results         = $raw['response'];
 		$results['body'] = $raw['body'];
 	}
 
@@ -254,8 +254,8 @@ function ezoic_cdn_display_admin_notices() {
 
 	foreach ( $notices as $key => $notice ) {
 		?>
-		<div class="notice notice-<?php echo $notice['class']; ?> is-dismissable">
-			<p><strong>Ezoic CDN Notice <?php echo $key; ?>: <?php echo $notice['label']; ?></strong></p>
+		<div class="notice notice-<?php echo esc_attr( $notice['class'] ); ?> is-dismissable">
+			<p><strong>Ezoic CDN Notice <?php echo esc_attr( $key ); ?>: <?php echo esc_attr( $notice['label'] ); ?></strong></p>
 			<?php
 			echo '<pre>Input: ';
 			print_r( $notice['params'] );
@@ -304,7 +304,7 @@ function ezoic_cdn_clear_url( $url = null ) {
 	$results = wp_remote_post( $api_url, $args );
 
 	if ( $verbose ) {
-		ezoic_cdn_add_notice( "Single URL", $results, $url );
+		ezoic_cdn_add_notice( 'Single URL', $results, $url );
 	}
 
 	$ezoic_cdn_already_purged[] = $url;
