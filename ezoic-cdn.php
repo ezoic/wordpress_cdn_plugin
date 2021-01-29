@@ -21,6 +21,8 @@
  * License URI: http://www.gnu.org/licenses/gpl-2.0.html
  */
 
+$ezoic_cdn_already_purged = array();
+
 /**
  * Helper function to determine if auto-purging of the Ezoic CDN is enabled or not.
  *
@@ -28,7 +30,7 @@
  *
  * @see ezoic_cdn_api_key()
  * @since 1.0.0
- * @param boolean $refresh Set to true if you want to re-fetch the option isntead of using static variable.
+ * @param boolean $refresh Set to true if you want to re-fetch the option instead of using static variable.
  * @return boolean
  */
 function ezoic_cdn_is_enabled( $refresh = false ) {
@@ -40,6 +42,63 @@ function ezoic_cdn_is_enabled( $refresh = false ) {
 		$cdn_enabled = ( get_option( 'ezoic_cdn_enabled', 'off' ) === 'on' );
 	}
 	return $cdn_enabled;
+}
+
+/**
+ * Helper Function to determine if we are always purging the home page when purging anything.
+ *
+ * @since 1.1.2
+ * @param boolean $refresh Set to true if you want to re-fetch the option instead of using static variable.
+ * @return boolean
+ */
+function ezoic_cdn_always_purge_home( $refresh = false ) {
+	static $always_home = null;
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return false;
+	}
+	if ( is_null( $always_home ) || $refresh ) {
+		$always_home = ( get_option( 'ezoic_cdn_always_home', 'off' ) === 'on' );
+	}
+	return boolval( $always_home );
+}
+
+/**
+ * When purging for any other reason, submit a separate purge of the home page
+ *
+ * @since 1.1.2
+ * @return boolean|array|WP_Error Returns false if not set to auto-purge home page, otherwise returns the response from doing separate purge.
+ */
+function ezoic_cdn_purge_home() {
+	if ( ! ezoic_cdn_always_purge_home() ) {
+		return false;
+	}
+
+	$urls = array(
+		get_site_url(),
+		get_home_url(),
+		get_post_type_archive_link( 'post' ),
+	);
+
+	$urls = array_unique( $urls );
+	return ezoic_cdn_clear_urls( $urls );
+}
+
+/**
+ * Helper function to determine if verbose mode is on.
+ *
+ * @since 1.1.2
+ * @param boolean $refresh Set to true if you want to re-fetch the option instead of using the static variable.
+ * @return boolean
+ */
+function ezoic_cdn_verbose_mode( $refresh = false ) {
+	static $verbose_mode = null;
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return false;
+	}
+	if ( is_null( $verbose_mode ) || $refresh ) {
+		$verbose_mode = ( get_option( 'ezoic_cdn_verbose_mode', 'off' ) === 'on' );
+	}
+	return boolval( $verbose_mode );
 }
 
 /**
@@ -142,6 +201,81 @@ function ezoic_cdn_post_deleted( $post_id, $old_post ) {
 add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 10, 2 );
 
 /**
+ * Add an admin notice for verbose mode
+ *
+ * @since 1.1.2
+ * @param string $label    Label for the notice.
+ * @param mixed  $results  The verbose output.
+ * @param mixed  $params   Any parameters relevant to the submission.
+ * @param string $class    Notice Class.
+ * @return void
+ */
+function ezoic_cdn_add_notice( $label, $results, $params = null, $class = 'info' ) {
+	static $notices = array();
+
+	$raw = null;
+
+	if ( ! $notices ) {
+		$notices = get_transient( 'ezoic_cdn_admin_notice' );
+	}
+
+	if ( is_array( $results ) && ! empty( $results['response'] ) && ! empty( $results['body'] ) ) {
+		$raw = $results;
+
+		$results = $raw['response'];
+		$results['body'] = $raw['body'];
+	}
+
+	$notices[] = array(
+		'label'   => $label,
+		'results' => $results,
+		'params'  => $params,
+		'class'   => $class,
+		'raw'     => $raw,
+	);
+
+	set_transient( 'ezoic_cdn_admin_notice', $notices, 60 );
+}
+
+/**
+ * Verbose Mode output notices
+ *
+ * @since 1.1.2
+ * @return void
+ */
+function ezoic_cdn_display_admin_notices() {
+	if ( ! ezoic_cdn_verbose_mode() ) {
+		return;
+	}
+	$notices = get_transient( 'ezoic_cdn_admin_notice' );
+	if ( ! $notices ) {
+		return;
+	}
+
+	foreach ( $notices as $key => $notice ) {
+		?>
+		<div class="notice notice-<?php echo $notice['class']; ?> is-dismissable">
+			<p><strong>Ezoic CDN Notice <?php echo $key; ?>: <?php echo $notice['label']; ?></strong></p>
+			<?php
+			echo '<pre>Input: ';
+			print_r( $notice['params'] );
+			echo "\nResult: ";
+			print_r( $notice['results'] );
+			echo '</pre>';
+			echo '<!-- Raw Results: ';
+			print_r( $notice['raw'] );
+			echo '-->';
+			?>
+		</div>
+		<?php
+	}
+
+	delete_transient( 'ezoic_cdn_admin_notice' );
+}
+
+add_action( 'admin_notices', 'ezoic_cdn_display_admin_notices' );
+
+/**
  * Uses Ezoic CDN API to purge cache for a single URL
  *
  * @since 1.0.0
@@ -149,17 +283,35 @@ add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 10, 2 );
  * @return array|WP_Error wp_remote_post() response array
  */
 function ezoic_cdn_clear_url( $url = null ) {
-	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/clearcache?developerKey=' . ezoic_cdn_api_key();
+	global $ezoic_cdn_already_purged;
+
+	if ( in_array( $url, $ezoic_cdn_already_purged, true ) ) {
+		return;
+	}
+
+	$api_url = 'https://api-gateway.ezoic.com/gateway/cdnservices/clearcache?developerKey=' . ezoic_cdn_api_key();
+
+	$verbose = ezoic_cdn_verbose_mode();
 
 	$args = array(
 		'timeout'     => 45,
-		'blocking'    => false,
+		'blocking'    => $verbose,
 		'httpversion' => '1.1',
 		'headers'     => array( 'Content-Type' => 'application/json' ),
 		'body'        => wp_json_encode( array( 'url' => $url ) ),
 	);
 
-	return wp_remote_post( $url, $args );
+	$results = wp_remote_post( $api_url, $args );
+
+	if ( $verbose ) {
+		ezoic_cdn_add_notice( "Single URL", $results, $url );
+	}
+
+	$ezoic_cdn_already_purged[] = $url;
+
+	ezoic_cdn_purge_home();
+
+	return $results;
 }
 
 /**
@@ -170,17 +322,35 @@ function ezoic_cdn_clear_url( $url = null ) {
  * @return array|WP_Error wp_remote_post() response array
  */
 function ezoic_cdn_clear_urls( $urls = array() ) {
-	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/bulkclearcache?developerKey=' . ezoic_cdn_api_key();
+	global $ezoic_cdn_already_purged;
+
+	$urls = array_unique( array_diff( $urls, $ezoic_cdn_already_purged ) );
+
+	if ( ! $urls ) {
+		return;
+	}
+
+	$api_url = 'https://api-gateway.ezoic.com/gateway/cdnservices/bulkclearcache?developerKey=' . ezoic_cdn_api_key();
+
+	$verbose = ezoic_cdn_verbose_mode();
 
 	$args = array(
 		'timeout'     => 45,
-		'blocking'    => false,
+		'blocking'    => $verbose,
 		'httpversion' => '1.1',
 		'headers'     => array( 'Content-Type' => 'application/json' ),
-		'body'        => wp_json_encode( array( 'urls' => $urls ) ),
+		'body'        => wp_json_encode( array( 'urls' => array_values( $urls ) ) ),
 	);
 
-	return wp_remote_post( $url, $args );
+	$results = wp_remote_post( $api_url, $args );
+
+	$ezoic_cdn_already_purged = array_merge( $ezoic_cdn_already_purged, $urls );
+
+	if ( $verbose ) {
+		ezoic_cdn_add_notice( 'Bulk Purge', $results, $urls );
+	}
+
+	return $results;
 }
 
 /**
@@ -191,17 +361,25 @@ function ezoic_cdn_clear_urls( $urls = array() ) {
  * @return array|WP_Error wp_remote_post() response array
  */
 function ezoic_cdn_purge( $domain = null ) {
-	$url = 'https://api-gateway.ezoic.com/gateway/cdnservices/purgecache?developerKey=' . ezoic_cdn_api_key();
+	$api_url = 'https://api-gateway.ezoic.com/gateway/cdnservices/purgecache?developerKey=' . ezoic_cdn_api_key();
+
+	$verbose = ezoic_cdn_verbose_mode();
 
 	$args = array(
 		'timeout'     => 45,
-		'blocking'    => true,
+		'blocking'    => $verbose,
 		'httpversion' => '1.1',
 		'headers'     => array( 'Content-Type' => 'application/json' ),
 		'body'        => wp_json_encode( array( 'domain' => $domain ) ),
 	);
 
-	return wp_remote_post( $url, $args );
+	$results = wp_remote_post( $api_url, $args );
+
+	if ( $verbose ) {
+		ezoic_cdn_add_notice( 'Purge', $results, array( 'domain' => $domain ) );
+	}
+
+	return $results;
 }
 
 /**
@@ -283,6 +461,11 @@ function ezoic_cdn_get_recache_urls_by_post( $post_id, $post = null ) {
 		$urls[] = get_post_comments_feed_link( $post_id, 'rss2' );
 	}
 
+	if ( ezoic_cdn_always_purge_home() ) {
+		$urls[] = get_site_url();
+		$urls[] = get_home_url();
+	}
+
 	if ( 'post' !== $post->post_type ) {
 		return $urls;
 	}
@@ -353,9 +536,27 @@ function ezoic_cdn_admin_init() {
 		'ezoic_cdn_settings_section'
 	);
 
+	add_settings_field(
+		'ezoic_cdn_always_home',
+		'Purge Home',
+		'ezoic_cdn_always_home_field',
+		'ezoic_cdn',
+		'ezoic_cdn_settings_section'
+	);
+
+	add_settings_field(
+		'ezoic_cdn_verbose_mode',
+		'Verbose Mode',
+		'ezoic_cdn_verbose_field',
+		'ezoic_cdn',
+		'ezoic_cdn_settings_section'
+	);
+
 	register_setting( 'ezoic_cdn', 'ezoic_cdn_api_key' );
 	register_setting( 'ezoic_cdn', 'ezoic_cdn_domain' );
 	register_setting( 'ezoic_cdn', 'ezoic_cdn_enabled' );
+	register_setting( 'ezoic_cdn', 'ezoic_cdn_always_home' );
+	register_setting( 'ezoic_cdn', 'ezoic_cdn_verbose_mode' );
 }
 add_action( 'admin_init', 'ezoic_cdn_admin_init' );
 
@@ -431,6 +632,64 @@ function ezoic_cdn_enabled_field() {
 	<?php
 }
 
+/**
+ * WordPress Settings Field for enabling/disabling verbose mode
+ *
+ * @since 1.1.2
+ * @return void
+ */
+function ezoic_cdn_always_home_field() {
+	$checked = ezoic_cdn_always_purge_home( true );
+	?>
+	<input type="radio" id="ezoic_cdn_always_home_on" name="ezoic_cdn_always_home" value="on"
+	<?php
+	if ( $checked ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_always_home_on">Enabled</label>
+
+	<input type="radio" id="ezoic_cdn_always_home_off" name="ezoic_cdn_always_home" value="off"
+	<?php
+	if ( ! $checked ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_always_home_off">Disabled</label> <em>Will purge the home page whenever purging for any post.</em>
+	<?php
+}
+
+/**
+ * WordPress Settings Field for enabling/disabling verbose mode
+ *
+ * @since 1.1.2
+ * @return void
+ */
+function ezoic_cdn_verbose_field() {
+	$checked = ezoic_cdn_verbose_mode( true );
+	?>
+	<input type="radio" id="ezoic_cdn_verbose_on" name="ezoic_cdn_verbose_mode" value="on"
+	<?php
+	if ( $checked ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_verbose_on">Enabled</label>
+
+	<input type="radio" id="ezoic_cdn_verbose_off" name="ezoic_cdn_verbose_mode" value="off"
+	<?php
+	if ( ! $checked ) {
+		echo( 'checked="checked"' );
+	}
+	?>
+	/>
+	<label for="ezoic_cdn_verbose_off">Disabled</label> <em>Outputs debug messages whenever submitting purge, <span style="color: red;font-weight: bold;">will slow down editing, leave disabled unless you need it</span>.</em>
+	<?php
+}
+
 // When W3TC is instructed to purge cache for entire site, also purge cache from Ezoic CDN.
 add_action( 'w3tc_flush_posts', 'ezoic_cdn_cachehook_purge_posts_action', 2100 );
 add_action( 'w3tc_flush_all', 'ezoic_cdn_cachehook_purge_posts_action', 2100 );
@@ -443,6 +702,7 @@ add_action( 'wp_cache_cleared', 'ezoic_cdn_cachehook_purge_posts_action', 2100 )
  * Completely purges Ezoic CDN cache for domain when these caches are purged
  *
  * @since 1.1.1
+ * @since 1.1.2 auto-purge home when configured
  * @return void
  */
 function ezoic_cdn_cachehook_purge_posts_action() {
@@ -462,6 +722,7 @@ add_action( 'w3tc_flush_post', 'ezoic_cdn_cachehook_purge_post_action', 2100, 1 
  * Purges Ezoic CDN Cache when a post is flushed by the W3TC plugin
  *
  * @since 1.1.1
+ * @since 1.1.2 auto-purge home when configured
  * @param int $post_id ID of the Post.
  * @return void
  */
@@ -512,8 +773,6 @@ function ezoic_cdn_rocket_purge_action( $type = 'all', $id = 0, $taxonomy = '', 
 		case 'url':
 			$urls = array( $url );
 			ezoic_cdn_clear_urls( $urls );
-			return;
-		default:
 			return;
 	}
 }
