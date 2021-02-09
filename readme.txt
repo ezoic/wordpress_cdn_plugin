@@ -2,7 +2,7 @@
 Tags: cdn, ezoic
 Requires at least: 5.2
 Tested up to: 5.6
-Stable tag: 1.1.2
+Stable tag: 1.1.4
 Requires PHP: 7.0
 Contributors: ezoic
 License: GPLv2
@@ -67,6 +67,10 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 == Screenshots ==
 
 == Changelog ==
+
+### 1.1.4 - 2021-02-08
+#### Changed
+- Replace `get_home_url()` and `get_site_url()` with `get_home_url( null, '/' )` and `get_site_url( null, '/' )` to ensure recaches of the home page work.
 
 ### 1.1.3 - 2021-02-01
 #### Added

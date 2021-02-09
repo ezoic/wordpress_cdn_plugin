@@ -3,7 +3,7 @@
  * Ezoic CDN Manager Plugin
  *
  * @package ezoic-cdn-manager
- * @version 1.1.3
+ * @version 1.1.4
  * @author Ezoic
  * @copyright 2020 Ezoic Inc
  * @license GPL-2.0-or-later
@@ -12,7 +12,7 @@
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Requires at least: 5.2
  * Requires PHP: 7.0
  * Author: Ezoic Inc
@@ -393,10 +393,10 @@ function ezoic_cdn_clear_urls( $urls = array(), $scheduled = false ) {
 		$label = ( $scheduled ) ? 'Scheduled Purge' : 'Bulk Purge';
 		ezoic_cdn_add_notice( $label, $results, $urls );
 	}
-	if ( ! $scheduled ) {
-		$success = wp_schedule_single_event( time() + 120, 'ezoic_cdn_scheduled_clear', array( $urls ) );
-		ezoic_cdn_add_notice( 'Schedule Secondary Ping', $success, $urls );
-	}
+	// if ( ! $scheduled ) {
+	// 	$success = wp_schedule_single_event( time() + 120, 'ezoic_cdn_scheduled_clear', array( $urls ) );
+	// 	ezoic_cdn_add_notice( 'Schedule Secondary Ping', $success, $urls );
+	// }
 
 	return $results;
 }
@@ -510,8 +510,8 @@ function ezoic_cdn_get_recache_urls_by_post( $post_id, WP_Post $post = null ) {
 	}
 
 	if ( ezoic_cdn_always_purge_home() ) {
-		$urls[] = get_site_url();
-		$urls[] = get_home_url();
+		$urls[] = get_site_url( null, '/' );
+		$urls[] = get_home_url( null, '/' );
 	}
 
 	if ( 'post' !== $post->post_type ) {
