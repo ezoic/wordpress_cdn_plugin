@@ -68,6 +68,13 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 
 == Changelog ==
 
+### 1.1.3 - 2021-02-01
+#### Added
+- Added scheduled purge to happen 2 minutes after the save is complete (in addition to real-time purge).
+#### Changed
+- Adjusted priority of the Purge hook so it happens at the end of the save process.
+- Typehinting for WP_Post where appropriate
+
 ### 1.1.2 - 2021-01-28
 #### Added
 - Added configuration for PHP_Codesniffer and editorconfig

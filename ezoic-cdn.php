@@ -3,7 +3,7 @@
  * Ezoic CDN Manager Plugin
  *
  * @package ezoic-cdn-manager
- * @version 1.1.2
+ * @version 1.1.3
  * @author Ezoic
  * @copyright 2020 Ezoic Inc
  * @license GPL-2.0-or-later
@@ -12,7 +12,7 @@
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.1.2
+ * Version: 1.1.3
  * Requires at least: 5.2
  * Requires PHP: 7.0
  * Author: Ezoic Inc
@@ -122,7 +122,6 @@ function ezoic_cdn_get_domain( $default = false ) {
 	return $cdn_domain;
 }
 
-
 /**
  * Helper Function to retrieve the API Key from WordPress Options
  *
@@ -150,7 +149,7 @@ function ezoic_cdn_api_key( $refresh = false ) {
  * @see ezoic_cdn_clear_urls()
  * @return void
  */
-function ezoic_cdn_post_updated( $post_id, $old_post, $new_post ) {
+function ezoic_cdn_post_updated( $post_id, WP_Post $old_post, WP_Post $new_post ) {
 	if ( ! ezoic_cdn_is_enabled() ) {
 		return;
 	}
@@ -169,7 +168,37 @@ function ezoic_cdn_post_updated( $post_id, $old_post, $new_post ) {
 
 	ezoic_cdn_clear_urls( $urls );
 }
-add_action( 'post_updated', 'ezoic_cdn_post_updated', 10, 3 );
+add_action( 'post_updated', 'ezoic_cdn_post_updated', 100, 3 );
+
+/**
+ * Implementation of save_post action, like the updated one but for new posts.
+ *
+ * @since 1.1.3
+ * @param int     $post_id  ID of the post created or updated.
+ * @param WP_Post $post     The WP_Post object.
+ * @param boolean $update   true if this is an update of an existing post.
+ * @return void
+ */
+function ezoic_cdn_save_post( $post_id, WP_Post $post, $update = false ) {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	if ( wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+	// If this is an update to an existing post, this will be handled by the post_updated action instead.
+	if ( $update ) {
+		return;
+	}
+	// No need to purge anything if the new post isn't published.
+	if ( 'publish' !== $post->post_status ) {
+		return;
+	}
+
+	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id, $post );
+	ezoic_cdn_clear_urls( $urls );
+}
+add_action( 'save_post', 'ezoic_cdn_save_post', 100, 3 );
 
 /**
  * Implementation of after_delete_post action
@@ -182,7 +211,7 @@ add_action( 'post_updated', 'ezoic_cdn_post_updated', 10, 3 );
  * @see ezoic_cdn_clear_urls()
  * @return void
  */
-function ezoic_cdn_post_deleted( $post_id, $old_post ) {
+function ezoic_cdn_post_deleted( $post_id, WP_Post $old_post ) {
 	if ( ! ezoic_cdn_is_enabled() ) {
 		return;
 	}
@@ -198,7 +227,7 @@ function ezoic_cdn_post_deleted( $post_id, $old_post ) {
 
 	ezoic_cdn_clear_urls( $urls );
 }
-add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 10, 2 );
+add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 100, 2 );
 
 /**
  * Add an admin notice for verbose mode
@@ -234,7 +263,7 @@ function ezoic_cdn_add_notice( $label, $results, $params = null, $class = 'info'
 		'raw'     => $raw,
 	);
 
-	set_transient( 'ezoic_cdn_admin_notice', $notices, 60 );
+	set_transient( 'ezoic_cdn_admin_notice', $notices, 600 );
 }
 
 /**
@@ -315,13 +344,27 @@ function ezoic_cdn_clear_url( $url = null ) {
 }
 
 /**
+ * Our own action to use with scheduling cache clears.
+ *
+ * @since 1.1.3
+ * @param array $urls List of URLs to purge from Ezoic Cache.
+ * @return void
+ */
+function ezoic_cdn_scheduled_clear_action( $urls = array() ) {
+	ezoic_cdn_clear_urls( $urls, true );
+}
+add_action( 'ezoic_cdn_scheduled_clear', 'ezoic_cdn_scheduled_clear_action', 1, 1 );
+
+/**
  * Uses Ezoic CDN API to purge cache for an array of URLs
  *
  * @since 1.0.0
- * @param array $urls List of URLs to purge from Ezoic Cache.
+ * @since 1.1.3 Once a removal has been submitted, submit another one 1 minute later.
+ * @param array $urls      List of URLs to purge from Ezoic Cache.
+ * @param bool  $scheduled True if this is a scheduled run of this removal request.
  * @return array|WP_Error wp_remote_post() response array
  */
-function ezoic_cdn_clear_urls( $urls = array() ) {
+function ezoic_cdn_clear_urls( $urls = array(), $scheduled = false ) {
 	global $ezoic_cdn_already_purged;
 
 	$urls = array_unique( array_diff( $urls, $ezoic_cdn_already_purged ) );
@@ -347,7 +390,12 @@ function ezoic_cdn_clear_urls( $urls = array() ) {
 	$ezoic_cdn_already_purged = array_merge( $ezoic_cdn_already_purged, $urls );
 
 	if ( $verbose ) {
-		ezoic_cdn_add_notice( 'Bulk Purge', $results, $urls );
+		$label = ( $scheduled ) ? 'Scheduled Purge' : 'Bulk Purge';
+		ezoic_cdn_add_notice( $label, $results, $urls );
+	}
+	if ( ! $scheduled ) {
+		$success = wp_schedule_single_event( time() + 120, 'ezoic_cdn_scheduled_clear', array( $urls ) );
+		ezoic_cdn_add_notice( 'Schedule Secondary Ping', $success, $urls );
 	}
 
 	return $results;
@@ -391,7 +439,7 @@ function ezoic_cdn_purge( $domain = null ) {
  * @param WP_Post $post WordPress post object (found with get_post if omitted).
  * @return array $urls Array of URLs to be recached for a given post
  */
-function ezoic_cdn_get_recache_urls_by_post( $post_id, $post = null ) {
+function ezoic_cdn_get_recache_urls_by_post( $post_id, WP_Post $post = null ) {
 	if ( ! $post ) {
 		$post = get_post( $post_id );
 	}
