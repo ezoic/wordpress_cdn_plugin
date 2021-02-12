@@ -3,7 +3,7 @@
  * Ezoic CDN Manager Plugin
  *
  * @package ezoic-cdn-manager
- * @version 1.1.4
+ * @version 1.2.0
  * @author Ezoic
  * @copyright 2020 Ezoic Inc
  * @license GPL-2.0-or-later
@@ -12,7 +12,7 @@
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.1.4
+ * Version: 1.2.0
  * Requires at least: 5.2
  * Requires PHP: 7.0
  * Author: Ezoic Inc
@@ -22,6 +22,7 @@
  */
 
 $ezoic_cdn_already_purged = array();
+$ezoic_cdn_keys_purged    = array();
 
 /**
  * Helper function to determine if auto-purging of the Ezoic CDN is enabled or not.
@@ -167,6 +168,12 @@ function ezoic_cdn_post_updated( $post_id, WP_Post $old_post, WP_Post $new_post 
 	$urls = array_unique( $urls );
 
 	ezoic_cdn_clear_urls( $urls );
+
+	$keys = ezoic_cdn_get_surrogate_keys_by_post( $post_id, $old_post );
+	$keys = array_merge( $keys, ezoic_cdn_get_surrogate_keys_by_post( $post_id, $new_post ) );
+	$keys = array_unique( $keys );
+
+	ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
 }
 add_action( 'post_updated', 'ezoic_cdn_post_updated', 100, 3 );
 
@@ -197,6 +204,9 @@ function ezoic_cdn_save_post( $post_id, WP_Post $post, $update = false ) {
 
 	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id, $post );
 	ezoic_cdn_clear_urls( $urls );
+
+	$keys = ezoic_cdn_get_surrogate_keys_by_post( $post_id, $post );
+	ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
 }
 add_action( 'save_post', 'ezoic_cdn_save_post', 100, 3 );
 
@@ -224,8 +234,10 @@ function ezoic_cdn_post_deleted( $post_id, WP_Post $old_post ) {
 	}
 
 	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id, $old_post );
-
 	ezoic_cdn_clear_urls( $urls );
+
+	$keys = ezoic_cdn_get_surrogate_keys_by_post( $post_id, $old_post );
+	ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
 }
 add_action( 'after_delete_post', 'ezoic_cdn_post_deleted', 100, 2 );
 
@@ -393,10 +405,55 @@ function ezoic_cdn_clear_urls( $urls = array(), $scheduled = false ) {
 		$label = ( $scheduled ) ? 'Scheduled Purge' : 'Bulk Purge';
 		ezoic_cdn_add_notice( $label, $results, $urls );
 	}
-	// if ( ! $scheduled ) {
-	// 	$success = wp_schedule_single_event( time() + 120, 'ezoic_cdn_scheduled_clear', array( $urls ) );
-	// 	ezoic_cdn_add_notice( 'Schedule Secondary Ping', $success, $urls );
-	// }
+
+	return $results;
+}
+
+/**
+ * Purge pages from Ezoic CDN by Surrogate Keys
+ *
+ * @since 1.2.0
+ * @param array  $keys   Array of Surrogate Keys to purge from Ezoic CDN cache.
+ * @param string $domain Domain Name to purge for.
+ * @return array|WP_Error wp_remote_post() response array
+ */
+function ezoic_cdn_clear_surrogate_keys( $keys = array(), $domain = null ) {
+	global $ezoic_cdn_keys_purged;
+
+	if ( ! $domain ) {
+		$domain = ezoic_cdn_get_domain();
+	}
+
+	$keys = array_unique( array_diff( $keys, $ezoic_cdn_keys_purged ) );
+
+	if ( ! $keys ) {
+		return;
+	}
+
+	$api_url = 'https://api-gateway.ezoic.com/gateway/cdnservices/clearbysurrogatekeys?developerKey=' . ezoic_cdn_api_key();
+
+	$verbose = ezoic_cdn_verbose_mode();
+
+	$args = array(
+		'timeout'     => 45,
+		'blocking'    => $verbose,
+		'httpversion' => '1.1',
+		'headers'     => array( 'Content-Type' => 'application/json' ),
+		'body'        => wp_json_encode(
+			array(
+				'keys'   => implode( ',', $keys ),
+				'domain' => $domain,
+			)
+		),
+	);
+
+	$results = wp_remote_post( $api_url, $args );
+
+	$ezoic_cdn_keys_purged = array_merge( $ezoic_cdn_keys_purged, $keys );
+
+	if ( $verbose ) {
+		ezoic_cdn_add_notice( 'Surrogate Key Purge', $results, $keys );
+	}
 
 	return $results;
 }
@@ -431,6 +488,84 @@ function ezoic_cdn_purge( $domain = null ) {
 }
 
 /**
+ * Determines list of SurrogateKeys related to a post that should be recached when the post is updated
+ *
+ * @since 1.2.0
+ * @param int     $post_id ID of the Post.
+ * @param WP_Post $post WordPress post object (found with get_post if omitted).
+ * @return array $keys Array of Surrogate Keys to be recached for a given post
+ */
+function ezoic_cdn_get_surrogate_keys_by_post( $post_id, WP_Post $post = null ) {
+	if ( ! $post ) {
+		$post = get_post( $post_id );
+	}
+
+	$keys = array();
+
+	$keys[] = "single-{$post_id}";
+
+	$categories = get_the_terms( $post, 'category' );
+	if ( $categories ) {
+		foreach ( $categories as $category ) {
+			$keys[] = "category-{$category->term_id}";
+			$keys[] = "category-{$category->slug}";
+		}
+	}
+
+	$tags = get_the_terms( $post, 'post_tag' );
+	if ( $tags ) {
+		foreach ( $tags as $tag ) {
+			$keys[] = "tag-{$tag->term_id}";
+			$keys[] = "tag-{$tag->slug}";
+		}
+	}
+
+	$taxonomies = get_object_taxonomies( $post, 'names' );
+	if ( $taxonomies ) {
+		foreach ( $taxonomies as $taxonomy ) {
+			if ( in_array( $taxonomy, array( 'category', 'post_tag', 'author' ), true ) ) {
+				continue;
+			}
+
+			$terms = get_the_terms( $post, $taxonomy );
+			if ( $terms ) {
+				foreach ( $terms as $term ) {
+					$keys[] = "tax-{$taxonomy}-{$term->term_id}";
+					$keys[] = "tax-{$taxonomy}-{$term->slug}";
+				}
+			}
+		}
+	}
+
+	$keys[] = 'author-' . get_the_author_meta( 'user_nicename', $post->post_author );
+
+	if ( function_exists( 'coauthors' ) ) {
+		$authors = get_coauthors( $post_id );
+		if ( $authors ) {
+			foreach ( $authors as $author ) {
+				$keys[] = "author-{$author->user_nicename}";
+			}
+		}
+	}
+
+	if ( ezoic_cdn_always_purge_home() ) {
+		$keys[] = 'front';
+		$keys[] = 'home';
+	}
+
+	if ( 'post' !== $post->post_type ) {
+		return array_unique( $keys );
+	}
+
+	$date   = strtotime( $post->post_date );
+	$keys[] = 'date-' . gmdate( 'Y', $date );
+	$keys[] = 'date-' . gmdate( 'Ym', $date );
+	$keys[] = 'date-' . gmdate( 'Ymd', $date );
+
+	return array_unique( $keys );
+}
+
+/**
  * Determines list of URLs related to a post that should be recached when the post is updated
  *
  * @since 1.0.0
@@ -451,7 +586,7 @@ function ezoic_cdn_get_recache_urls_by_post( $post_id, WP_Post $post = null ) {
 		$urls[] = get_post_type_archive_link( $post->post_type );
 	}
 
-	$categories = wp_get_post_categories( $post_id, array( 'fields' => 'all' ) );
+	$categories = get_the_terms( $post, 'category' );
 	if ( $categories ) {
 		foreach ( $categories as $category ) {
 			$urls[] = get_term_link( $category );
@@ -460,7 +595,7 @@ function ezoic_cdn_get_recache_urls_by_post( $post_id, WP_Post $post = null ) {
 		}
 	}
 
-	$tags = wp_get_post_tags( $post_id, array( 'fields' => 'all' ) );
+	$tags = get_the_terms( $post, 'post_tag' );
 	if ( $tags ) {
 		foreach ( $tags as $tag ) {
 			$urls[] = get_term_link( $tag );
@@ -779,8 +914,11 @@ function ezoic_cdn_cachehook_purge_post_action( $post_id = null ) {
 		return;
 	}
 	$urls = ezoic_cdn_get_recache_urls_by_post( $post_id );
-
 	ezoic_cdn_clear_urls( $urls );
+
+	$keys = ezoic_cdn_get_surrogate_keys_by_post( $post_id );
+	ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
+
 	return true;
 }
 
@@ -810,6 +948,10 @@ function ezoic_cdn_rocket_purge_action( $type = 'all', $id = 0, $taxonomy = '', 
 		case 'post':
 			$urls = ezoic_cdn_get_recache_urls_by_post( $id );
 			ezoic_cdn_clear_urls( $urls );
+
+			$keys = ezoic_cdn_get_surrogate_keys_by_post( $id );
+			ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
+
 			return;
 		case 'term':
 			$urls   = array();
@@ -817,6 +959,21 @@ function ezoic_cdn_rocket_purge_action( $type = 'all', $id = 0, $taxonomy = '', 
 			$urls[] = get_term_feed_link( $id, $taxonomy, 'atom' );
 			$urls[] = get_term_feed_link( $id, $taxonomy, 'rss2' );
 			ezoic_cdn_clear_urls( $urls );
+
+			$term = get_term( $id, $taxonomy );
+
+			if ( 'category' === $taxonomy ) {
+				$keys[] = "category-{$id}";
+				$keys[] = "category-{$term->slug}";
+			} elseif ( 'post_tag' === $taxonomy ) {
+				$keys[] = "tag-{$id}";
+				$keys[] = "tag-{$term->slug}";
+			} else {
+				$keys[] = "tax-{$taxonomy}-{$id}";
+				$keys[] = "tax-{$taxonomy}-{$term->slug}";
+			}
+			ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
+
 			return;
 		case 'url':
 			$urls = array( $url );
@@ -847,4 +1004,105 @@ function ezoic_cdn_rocket_clean_post_action( $post, $purge_urls = array(), $lang
 	$urls = array_merge( $urls, $purge_urls );
 	$urls = array_unique( $urls );
 	ezoic_cdn_clear_urls( $urls );
+
+	$keys = ezoic_cdn_get_surrogate_keys_by_post( $post->ID, $post );
+	ezoic_cdn_clear_surrogate_keys( $keys, ezoic_cdn_get_domain() );
 }
+
+/**
+ * Set Cache Headers for Ezoic CDN
+ *
+ * Sets Cache-Control and Last-Modified headers as well as Surrogate Keys headers used for recaching whole archives including pagination.
+ *
+ * @since 1.2.0
+ * @return void
+ */
+function ezoic_cdn_add_headers() {
+	if ( ! ezoic_cdn_is_enabled() ) {
+		return;
+	}
+	global $wp_query;
+
+	$object         = get_queried_object();
+	$surrogate_keys = array();
+	$last_modified  = time();
+
+	$browser_max_age = 60 * 60; // Browser Cache pages 1 hour.
+	$server_max_age  = 86400 * 365 * 3; // Server Cache pages 3 years.
+
+	if ( is_singular() ) {
+		$surrogate_keys[] = 'single';
+		$surrogate_keys[] = 'single-' . get_post_type();
+		$surrogate_keys[] = 'single-' . get_the_ID();
+
+		$last_modified = strtotime( $object->post_modified );
+	} elseif ( is_archive() ) {
+		$surrogate_keys[] = 'archive';
+		if ( is_category() ) {
+			$surrogate_keys[] = 'category';
+
+			$surrogate_keys[] = 'category-' . $object->slug;
+			$surrogate_keys[] = 'category-' . $object->term_id;
+		} elseif ( is_tag() ) {
+			$surrogate_keys[] = 'tag';
+			$surrogate_keys[] = 'tag-' . $object->slug;
+			$surrogate_keys[] = 'tag-' . $object->term_id;
+		} elseif ( is_tax() ) {
+			$surrogate_keys[] = 'tax';
+			$surrogate_keys[] = "tax-{$object->taxonomy}";
+			$surrogate_keys[] = "tax-{$object->taxonomy}-{$object->slug}";
+			$surrogate_keys[] = "tax-{$object->taxonomy}-{$object->term_id}";
+		} elseif ( is_date() ) {
+			$surrogate_keys[] = 'date';
+			if ( is_day() ) {
+				$surrogate_keys[] = 'date-day';
+				$surrogate_keys[] = "date-{$wp_query->query_vars['year']}{$wp_query->query_vars['monthnum']}{$wp_query->query_vars['day']}";
+			} elseif ( is_month() ) {
+				$surrogate_keys[] = 'date-month';
+				$surrogate_keys[] = "date-{$wp_query->query_vars['year']}{$wp_query->query_vars['monthnum']}";
+			} elseif ( is_year() ) {
+				$surrogate_keys[] = 'date-year';
+				$surrogate_keys[] = "date-{$wp_query->query_vars['year']}";
+			}
+		} elseif ( is_author() ) {
+			$surrogate_keys[] = 'author';
+			$surrogate_keys[] = "author-{$object->user_nicename}";
+		} elseif ( is_post_type_archive() ) {
+			$surrogate_keys[] = 'type-' . get_post_type();
+		}
+
+		$paged = get_query_var( 'pagenum' ) ? get_query_var( 'pagenum' ) : false;
+		if ( ! $paged && get_query_var( 'paged' ) ) {
+			$paged = get_query_var( 'paged' );
+		}
+		if ( $paged ) {
+			$surrogate_keys[] = 'paged';
+			$surrogate_keys[] = "paged-{$paged}";
+		}
+	}
+
+	if ( is_front_page() ) {
+		$surrogate_keys[] = 'front';
+		$browser_max_age  = 600;   // Home page likely changes frequently, browser cache only 10 minutes.
+		$server_max_age   = 86400; // Home page likely changes frequently, server cache only 1 day.
+	}
+	if ( is_home() ) {
+		$surrogate_keys[] = 'home';
+		$browser_max_age  = 600;
+		$server_max_age   = 86400;
+	}
+
+	if ( is_user_logged_in() ) {
+		header( 'Cache-Control: max-age=0, no-store', true );
+		header_remove( 'Expires' );
+		header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s \G\M\T', $last_modified ), true );
+	} else {
+		header( "Cache-Control: max-age={$browser_max_age}, s-maxage={$server_max_age}, public", true );
+		header_remove( 'Expires' );
+		header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s \G\M\T', $last_modified ), true );
+	}
+	if ( $surrogate_keys ) {
+		header( 'Surrogate-Key: ' . implode( ' ', $surrogate_keys ), true );
+	}
+}
+add_action( 'template_redirect', 'ezoic_cdn_add_headers' );

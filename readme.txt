@@ -2,7 +2,7 @@
 Tags: cdn, ezoic
 Requires at least: 5.2
 Tested up to: 5.6
-Stable tag: 1.1.4
+Stable tag: 1.2.0
 Requires PHP: 7.0
 Contributors: ezoic
 License: GPLv2
@@ -67,6 +67,12 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 == Screenshots ==
 
 == Changelog ==
+
+### 1.2.0 - 2021-02-11
+#### Added
+- Added Cache-Control HTTP headers to pages to ensure long caching.
+- Added Surrogate-Key headers to frontend pages.
+- Added Recache by Surrogate-Key calls to ensure paginated results are recached at once.
 
 ### 1.1.4 - 2021-02-08
 #### Changed
