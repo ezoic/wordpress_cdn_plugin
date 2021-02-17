@@ -2,7 +2,7 @@
 Tags: cdn, ezoic
 Requires at least: 5.2
 Tested up to: 5.6
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 Requires PHP: 7.0
 Contributors: ezoic, nickmoline
 License: GPLv2
