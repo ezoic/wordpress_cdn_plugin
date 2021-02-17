@@ -68,28 +68,28 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 
 == Changelog ==
 
-### 1.2.1 - 2021-02-17
+### [1.2.1] - 2021-02-17
 #### Changed
-- Version bump
+- Changelog to more closely follow [keep a changelog](https://keepachangelog.com/en/1.0.0/)
 
-### 1.2.0 - 2021-02-11
+### [1.2.0] - 2021-02-11
 #### Added
 - Added Cache-Control HTTP headers to pages to ensure long caching.
 - Added Surrogate-Key headers to frontend pages.
 - Added Recache by Surrogate-Key calls to ensure paginated results are recached at once.
 
-### 1.1.4 - 2021-02-08
+### [1.1.4] - 2021-02-08
 #### Changed
 - Replace `get_home_url()` and `get_site_url()` with `get_home_url( null, '/' )` and `get_site_url( null, '/' )` to ensure recaches of the home page work.
 
-### 1.1.3 - 2021-02-01
+### [1.1.3] - 2021-02-01
 #### Added
 - Added scheduled purge to happen 2 minutes after the save is complete (in addition to real-time purge).
 #### Changed
 - Adjusted priority of the Purge hook so it happens at the end of the save process.
 - Typehinting for WP_Post where appropriate
 
-### 1.1.2 - 2021-01-28
+### [1.1.2] - 2021-01-28
 #### Added
 - Added configuration for PHP_Codesniffer and editorconfig
 - Added PHPDoc Documentation blocks to all functions and PHP Files
@@ -99,31 +99,41 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 - Updated code to follow the [Wordpress Coding Standards](https://github.com/WordPress/WordPress-Coding-Standards)
 - Prevent purging the same URL multiple times on the same request
 
-### 1.1.1 - 2021-01-26
+### [1.1.1] - 2021-01-26
 #### Added
 - Add hooks to popular caching plugins **W3 Total Cache**, **WP Super Cache**, and **WP Rocket** so that when those plugins clear local cache, the CDN is cleared as well.
 
-### 1.1.0 - 2021-01-20
+### [1.1.0] - 2021-01-20
 #### Added
 - Added support for purging custom taxonomies
 - Added support for purging author pages (including support for multiple authors)
 #### Changed
 - Documentation updates for new features and removal of Sitespeed+ Requirement (all Ezoic CDN users can now use this plugin).
 
-### 1.0.3 - 2020-12-11
+### [1.0.3] - 2020-12-11
 #### Changed
 - Updated documentation, added missing details.
 
-### 1.0.2 - 2020-12-10
+### [1.0.2] - 2020-12-10
 #### Changed
 - Documentation updates
 
-### 1.0.1 - 2020-12-09
+### [1.0.1] - 2020-12-09
 #### Fixed
 - Minor patch release to prevent attempts to recache a listing page for "page" type
 
-### 1.0.0 - 2020-12-09
+### [1.0.0] - 2020-12-09
 #### Added
 - Initial version 1.0 release of Ezoic CDN Plugin
 
-
+[Unreleased]: https://github.com/ezoic/wordpress_cdn_plugin/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.2.1
+[1.2.0]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.2.0
+[1.1.4]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.1.4
+[1.1.3]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.1.3
+[1.1.2]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.1.2
+[1.1.1]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.1.1
+[1.1.0]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.1.0
+[1.0.2]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.0.2
+[1.0.1]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.0.2
+[1.0.0]: https://github.com/ezoic/wordpress_cdn_plugin/releases/tag/v1.0.0
