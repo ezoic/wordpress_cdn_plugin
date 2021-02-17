@@ -68,6 +68,10 @@ That's it, at this point any time you update a post, the plugin will ping the Ez
 
 == Changelog ==
 
+### 1.2.1 - 2021-02-17
+#### Changed
+- Version bump
+
 ### 1.2.0 - 2021-02-11
 #### Added
 - Added Cache-Control HTTP headers to pages to ensure long caching.

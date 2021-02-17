@@ -3,7 +3,7 @@
  * Ezoic CDN Manager Plugin
  *
  * @package ezoic-cdn-manager
- * @version 1.2.0
+ * @version 1.2.1
  * @author Ezoic
  * @copyright 2020 Ezoic Inc
  * @license GPL-2.0-or-later
@@ -12,7 +12,7 @@
  * Plugin Name: Ezoic CDN Manager
  * Plugin URI: https://www.ezoic.com/site-speed/
  * Description: Automatically instructs the Ezoic CDN to purge changed pages from its cache whenever a post or page is updated.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Requires at least: 5.2
  * Requires PHP: 7.0
  * Author: Ezoic Inc
@@ -34,7 +34,7 @@ $ezoic_cdn_keys_purged    = array();
  * @param boolean $refresh Set to true if you want to re-fetch the option instead of using static variable.
  * @return boolean
  */
-function ezoic_cdn_is_enabled( $refresh = false ) {
+function ezoicCdnIsEnabled( $refresh = false ) {
 	static $cdn_enabled = null;
 	if ( ! ezoic_cdn_api_key() ) {
 		return false;
