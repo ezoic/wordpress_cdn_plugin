@@ -34,7 +34,7 @@ $ezoic_cdn_keys_purged    = array();
  * @param boolean $refresh Set to true if you want to re-fetch the option instead of using static variable.
  * @return boolean
  */
-function ezoicCdnIsEnabled( $refresh = false ) {
+function ezoic_cdn_is_enabled( $refresh = false ) {
 	static $cdn_enabled = null;
 	if ( ! ezoic_cdn_api_key() ) {
 		return false;
